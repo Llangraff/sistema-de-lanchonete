@@ -1,0 +1,450 @@
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const path = require('path');
+const isDev = require('electron-is-dev');
+const Database = require('better-sqlite3');
+const log = require('electron-log');
+
+let mainWindow;
+let db;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js') // Assumindo preload.js na mesma pasta que main.js
+    }
+  });
+  
+  // Remove a barra de menu
+  Menu.setApplicationMenu(null);
+
+  log.transports.file.level = 'debug';
+  log.info('App starting...');
+
+  if (isDev) {
+    // Em desenvolvimento, carregue a aplicação no Vite dev server
+    mainWindow.loadURL('http://localhost:3000').catch(err => {
+      log.error('Failed to load dev URL:', err);
+    });
+    mainWindow.webContents.openDevTools();
+  } else {
+    // Em produção, carregue o index.html do dist dentro do app.asar
+    const indexPath = path.join(app.getAppPath(), 'dist', 'index.html');
+    log.info('Loading index from:', indexPath);
+
+    mainWindow.loadFile(indexPath).catch((err) => {
+      log.error('Failed to load index.html:', err);
+      dialog.showErrorBox('Erro', `Falha ao carregar o aplicativo: ${err.message}`);
+    });
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+function initializeDatabase() {
+  try {
+    const dbPath = isDev
+      ? path.join(__dirname, 'database.db')  // Em dev, db local na pasta electron
+      : path.join(process.resourcesPath, 'database.db'); // Em produção, db no resources
+
+    log.info('Database path:', dbPath);
+    db = new Database(dbPath);
+
+    // Criação das tabelas necessárias
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price DECIMAL(10,2) NOT NULL,
+        category TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        deleted BOOLEAN NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT NOT NULL,
+        min_quantity REAL NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inventory_item_id INTEGER NOT NULL,
+        quantity REAL NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (error) {
+    log.error('Database error:', error);
+    dialog.showErrorBox('Erro no Banco de Dados', `Erro ao inicializar o banco de dados: ${error.message}`);
+    app.quit();
+  }
+}
+
+app.whenReady().then(() => {
+  initializeDatabase();
+  createWindow();
+  
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// ========================================================================
+// =========================== IPC HANDLERS ===============================
+// ========================================================================
+
+// Produtos
+ipcMain.handle('get-products', async () => {
+  try {
+    const stmt = db.prepare('SELECT * FROM products WHERE deleted = FALSE');
+    return stmt.all();
+  } catch (error) {
+    console.error('Erro ao carregar produtos:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('add-product', (_, product) => {
+  try {
+    const stmt = db.prepare('INSERT INTO products (name, price, category) VALUES (?, ?, ?)');
+    return stmt.run(product.name, product.price, product.category);
+  } catch (error) {
+    log.error('Error adding product:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('update-product', (_, product) => {
+  try {
+    const stmt = db.prepare('UPDATE products SET name = ?, price = ?, category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+    return stmt.run(product.name, product.price, product.category, product.id);
+  } catch (error) {
+    log.error('Error updating product:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('delete-product', async (_, id) => {
+  try {
+    const stmt = db.prepare('UPDATE products SET deleted = TRUE WHERE id = ?');
+    stmt.run(id);
+    return true;
+  } catch (error) {
+    console.error('Erro ao desativar produto:', error);
+    throw error;
+  }
+});
+
+// Pedidos
+ipcMain.handle('get-orders', () => {
+  const orders = db.prepare(`
+    SELECT 
+      o.*, 
+      COALESCE(SUM(oi.quantity * p.price), 0) as total
+    FROM orders o
+    LEFT JOIN order_items oi ON o.id = oi.order_id
+    LEFT JOIN products p ON oi.product_id = p.id
+    WHERE o.status != 'closed'
+    GROUP BY o.id
+  `).all();
+
+  return orders.map(order => ({
+    ...order,
+    items: db.prepare(`
+      SELECT 
+        oi.id,
+        oi.quantity,
+        oi.paid_quantity,
+        p.name as product_name,
+        p.price,
+        p.id as product_id
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = ?
+    `).all(order.id)
+  }));
+});
+
+ipcMain.handle('create-order', (_, { tableNumber, customerName }) => {
+  try {
+    return db.prepare('INSERT INTO orders (table_number, customer_name, status) VALUES (?, ?, ?)').run(tableNumber, customerName, 'open');
+  } catch (error) {
+    log.error('Error creating order:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('add-order-item', (_, { orderId, productId, quantity }) => {
+  try {
+    const existingItem = db.prepare(`
+      SELECT id, quantity FROM order_items 
+      WHERE order_id = ? AND product_id = ?
+    `).get(orderId, productId);
+
+    if (existingItem) {
+      return db.prepare(`
+        UPDATE order_items 
+        SET quantity = quantity + ? 
+        WHERE id = ?
+      `).run(quantity, existingItem.id);
+    } else {
+      return db.prepare(`
+        INSERT INTO order_items (order_id, product_id, quantity) 
+        VALUES (?, ?, ?)
+      `).run(orderId, productId, quantity);
+    }
+  } catch (error) {
+    log.error('Error adding order item:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('remove-order-item', (_, itemId) => {
+  try {
+    return db.prepare('DELETE FROM order_items WHERE id = ?').run(itemId);
+  } catch (error) {
+    log.error('Error removing order item:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('pay-partial-order-items', (_, { orderId, items }) => {
+  try {
+    const updateStmt = db.prepare(`
+      UPDATE order_items 
+      SET paid_quantity = paid_quantity + ? 
+      WHERE id = ? AND order_id = ?
+    `);
+
+    const transaction = db.transaction(() => {
+      items.forEach(({ itemId, quantity }) => {
+        updateStmt.run(quantity, itemId, orderId);
+      });
+    });
+
+    transaction();
+    return { success: true };
+  } catch (error) {
+    log.error('Error processing partial payment:', error);
+    throw error;
+  }
+});
+
+// Fechar pedido - utilizando DATETIME('now', 'localtime') para ajustar ao fuso de Brasília
+ipcMain.handle('close-order', (_, orderId) => {
+  try {
+    return db.prepare(`
+      UPDATE orders 
+      SET status = 'closed', closed_at = DATETIME('now', 'localtime')
+      WHERE id = ?
+    `).run(orderId);
+  } catch (error) {
+    log.error('Erro ao fechar pedido:', error);
+    throw error;
+  }
+});
+
+// Estoque
+ipcMain.handle('get-inventory-items', () => {
+  try {
+    return db.prepare('SELECT * FROM inventory_items ORDER BY name').all();
+  } catch (error) {
+    console.error('Error fetching inventory items:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('add-inventory-item', (_, item) => {
+  try {
+    const stmt = db.prepare('INSERT INTO inventory_items (name, quantity, unit, min_quantity) VALUES (?, ?, ?, ?)');
+    return stmt.run(item.name, item.quantity, item.unit, item.min_quantity);
+  } catch (error) {
+    log.error('Error adding inventory item:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('update-inventory-quantity', (_, { id, quantity, type, description }) => {
+  try {
+    const currentItem = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(id);
+    if (!currentItem) {
+      throw new Error('Item de estoque não encontrado');
+    }
+
+    const newQuantity = type === 'add'
+      ? currentItem.quantity + quantity
+      : currentItem.quantity - quantity;
+
+    if (newQuantity < 0) {
+      throw new Error('Quantidade insuficiente no estoque');
+    }
+
+    const updateStmt = db.prepare(`
+      UPDATE inventory_items 
+      SET quantity = ? 
+      WHERE id = ?
+    `);
+
+    const transactionStmt = db.prepare(`
+      INSERT INTO inventory_transactions (inventory_item_id, quantity, type, description)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    db.transaction(() => {
+      updateStmt.run(newQuantity, id);
+      transactionStmt.run(id, quantity, type, description);
+    })();
+
+    return db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
+  } catch (error) {
+    log.error('Error updating inventory quantity:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-inventory-transactions', (_, itemId) => {
+  try {
+    return db.prepare(`
+      SELECT * FROM inventory_transactions 
+      WHERE inventory_item_id = ? 
+      ORDER BY created_at DESC
+    `).all(itemId);
+  } catch (error) {
+    log.error('Error getting inventory transactions:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('get-low-stock-items', () => {
+  try {
+    return db.prepare(`
+      SELECT * 
+      FROM inventory_items 
+      WHERE quantity <= min_quantity 
+      ORDER BY name
+    `).all();
+  } catch (error) {
+    log.error('Error getting low stock items:', error);
+    return [];
+  }
+});
+
+// Atualizar/Excluir item de estoque
+ipcMain.handle('update-inventory-item', (_, item) => {
+  try {
+    return db.prepare(`
+      UPDATE inventory_items
+      SET name = ?, unit = ?, min_quantity = ?
+      WHERE id = ?
+    `).run(item.name, item.unit, item.min_quantity, item.id);
+  } catch (error) {
+    log.error('Error updating inventory item:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('delete-inventory-item', (_, itemId) => {
+  try {
+    return db.prepare('DELETE FROM inventory_items WHERE id = ?').run(itemId);
+  } catch (error) {
+    log.error('Error deleting inventory item:', error);
+    throw error;
+  }
+});
+
+// Relatórios
+// Ajustado para converter as datas para o fuso de Brasília (GMT-3)
+// e utilizar DATETIME com 'localtime' na consulta SQL
+ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sortBy }) => {
+  try {
+    // Converte as datas para o formato ISO (YYYY-MM-DD HH:MM:SS) usando o locale sv-SE
+    const options = { 
+      timeZone: 'America/Sao_Paulo', 
+      hour12: false, 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit', 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit' 
+    };
+    const adjustedStartDate = new Date(startDate + 'T00:00:00').toLocaleString('sv-SE', options);
+    const adjustedEndDate = new Date(endDate + 'T23:59:59').toLocaleString('sv-SE', options);
+
+    let whereClause = `
+      o.status = 'closed'
+      AND DATETIME(o.closed_at, 'localtime') BETWEEN DATETIME(?, 'localtime') AND DATETIME(?, 'localtime')
+    `;
+    const params = [adjustedStartDate, adjustedEndDate];
+
+    if (category) {
+      whereClause += ` AND p.category = ?`;
+      params.push(category);
+    }
+
+    if (priceRange) {
+      if (priceRange === '0-15') {
+        whereClause += ` AND p.price <= 15`;
+      } else if (priceRange === '15-30') {
+        whereClause += ` AND p.price > 15 AND p.price <= 30`;
+      } else if (priceRange === '30+') {
+        whereClause += ` AND p.price > 30`;
+      }
+    }
+
+    const data = db.prepare(`
+      SELECT 
+        COUNT(DISTINCT o.id) as total_orders,
+        COALESCE(SUM(oi.quantity * p.price), 0) as total_revenue,
+        COALESCE(SUM(oi.quantity), 0) as items_sold
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE ${whereClause}
+    `).get(...params);
+
+    let orderByClause = `revenue DESC`;
+    if (sortBy === 'quantidade') {
+      orderByClause = 'quantity DESC';
+    } else if (sortBy === 'receita') {
+      orderByClause = 'revenue DESC';
+    } else if (sortBy === 'preco') {
+      orderByClause = 'p.price DESC';
+    }
+
+    const topProductsQuery = `
+      SELECT 
+        p.name,
+        SUM(oi.quantity) as quantity,
+        SUM(oi.quantity * p.price) as revenue
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      JOIN orders o ON o.id = oi.order_id
+      WHERE ${whereClause}
+      GROUP BY p.id
+      ORDER BY ${orderByClause}
+      LIMIT 5
+    `;
+    const topProducts = db.prepare(topProductsQuery).all(...params);
+
+    return { ...data, topProducts };
+  } catch (error) {
+    log.error('Error generating report:', error);
+    throw error;
+  }
+});
