@@ -1,4 +1,3 @@
-
 import { Link, useLocation } from 'react-router-dom';
 import { ClipboardList, Package, BarChart2, BoxIcon } from 'lucide-react';
 
@@ -13,28 +12,37 @@ export default function Sidebar() {
   ];
 
   return (
-    <div className="w-64 bg-gradient-to-b from-blue-800 to-blue-900 text-white h-full flex flex-col">
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Espetinhos Manager</h1>
-        <p className="text-blue-200 text-sm mt-1">Sistema de Gestão v1.0</p>
+    <aside className="w-64 min-h-screen bg-gradient-to-b from-blue-800 to-blue-900 text-white flex flex-col">
+      <div className="p-6 border-b border-blue-700">
+        <h1 className="text-2xl font-bold">Langraff Sistemas</h1>
+        <p className="text-blue-300 text-sm mt-1">Sistema de Gestão v2.0</p>
       </div>
-      
+
       <nav className="flex-1 p-6 space-y-2">
-        {links.map(({ path, label, icon: Icon }) => (
-          <Link
-            key={path}
-            to={path}
-            className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-              location.pathname === path
-                ? 'bg-blue-700 text-white'
-                : 'text-blue-100 hover:bg-blue-700/50'
-            }`}
-          >
-            <Icon size={20} />
-            <span>{label}</span>
-          </Link>
-        ))}
+        {links.map(({ path, label, icon: Icon }) => {
+          const isActive = location.pathname === path;
+          return (
+            <Link
+              key={path}
+              to={path}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${
+                isActive
+                  ? 'bg-blue-700 shadow-md'
+                  : 'text-blue-200 hover:bg-blue-700/50'
+              }`}
+            >
+              <Icon size={20} className="transition-transform duration-200 transform hover:scale-110" />
+              <span className="font-medium">{label}</span>
+            </Link>
+          );
+        })}
       </nav>
-    </div>
+
+      <div className="p-6 border-t border-blue-700">
+        <p className="text-xs text-blue-300">
+          © {new Date().getFullYear()} Espetinhos Manager
+        </p>
+      </div>
+    </aside>
   );
 }

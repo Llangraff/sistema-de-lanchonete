@@ -18,14 +18,14 @@ export default function ProductForm({ onSubmit }: ProductFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-lg space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <input
           type="text"
           placeholder="Nome do produto"
           value={product.name}
-          onChange={(e) => setProduct({...product, name: e.target.value})}
-          className="rounded-md border-gray-300 p-2 border"
+          onChange={(e) => setProduct({ ...product, name: e.target.value })}
+          className="w-full rounded-md border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
           required
         />
         <input
@@ -33,14 +33,14 @@ export default function ProductForm({ onSubmit }: ProductFormProps) {
           step="0.01"
           placeholder="Preço"
           value={product.price}
-          onChange={(e) => setProduct({...product, price: e.target.value})}
-          className="rounded-md border-gray-300 p-2 border"
+          onChange={(e) => setProduct({ ...product, price: e.target.value })}
+          className="w-full rounded-md border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
           required
         />
         <select
           value={product.category}
-          onChange={(e) => setProduct({...product, category: e.target.value})}
-          className="rounded-md border-gray-300 p-2 border"
+          onChange={(e) => setProduct({ ...product, category: e.target.value })}
+          className="w-full rounded-md border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
         >
           <option value="espetinho">Espetinho</option>
           <option value="bebida">Bebida</option>
@@ -49,7 +49,7 @@ export default function ProductForm({ onSubmit }: ProductFormProps) {
       </div>
       <button 
         type="submit" 
-        className="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors"
+        className="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 transition-colors font-semibold"
       >
         Adicionar Produto
       </button>

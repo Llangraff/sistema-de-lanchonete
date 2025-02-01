@@ -1,6 +1,17 @@
 import { useState } from 'react';
+import {
+  Calendar,
+  TrendingUp,
+  Package,
+  DollarSign,
+  BarChart3,
+  FileText,
+  Download,
+  ChevronDown,
+  Filter,
+  RefreshCw
+} from 'lucide-react';
 import { getFormattedDate, formatCurrency } from '../utils/database';
-import { Calendar, TrendingUp, Package, DollarSign, BarChart3, FileText, Download, ChevronDown, Filter } from 'lucide-react';
 
 interface TopProduct {
   name: string;
@@ -44,18 +55,14 @@ export default function Reports() {
   // Gera o relatório chamando o back-end
   const generateReport = async () => {
     if (!window.db) return;
-
     if (startDate > endDate) {
       setError('Data inicial não pode ser maior que a data final.');
       setReport(null);
       return;
     }
-
     setIsLoading(true);
     setError('');
-
     try {
-      // Monta o objeto para enviar ao back
       const filters = {
         startDate,
         endDate,
@@ -63,7 +70,6 @@ export default function Reports() {
         priceRange: advancedFilters.priceRange,
         sortBy: advancedFilters.sortBy,
       };
-
       const data = await window.db.getReport(filters);
       setReport(data as Report);
     } catch (err: any) {
@@ -75,23 +81,21 @@ export default function Reports() {
     }
   };
 
-  // Verifica se o relatório retornado está vazio
   const isReportEmpty =
     report &&
     report.total_orders === 0 &&
-    (report.topProducts.length === 0 || !report.topProducts);
+    (!report.topProducts || report.topProducts.length === 0);
 
   // Define rapidamente um intervalo (ex: últimos 7 dias)
   const setQuickRange = (days: number) => {
     const now = new Date();
     const start = new Date();
     start.setDate(now.getDate() - days);
-
     setStartDate(getFormattedDate(start));
     setEndDate(getFormattedDate(now));
   };
 
-  // Exemplo de exportação (ainda não implementada)
+  // Exportação (a implementar)
   const handleExport = () => {
     if (!report) return;
     alert('Exportar relatório em PDF/CSV (a implementar)!');
@@ -100,20 +104,25 @@ export default function Reports() {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <BarChart3 className="h-8 w-8 text-blue-600" />
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-4">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-3 rounded-full">
+              <BarChart3 className="h-8 w-8 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Relatórios</h1>
-              <p className="text-sm text-gray-500">Visualize o desempenho do seu negócio</p>
+              <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-blue-800">
+                Relatórios
+              </h1>
+              <p className="text-sm text-gray-600">
+                Visualize o desempenho do seu negócio
+              </p>
             </div>
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row gap-4">
             <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
             >
               <Filter className="h-4 w-4" />
               Filtros Avançados
@@ -126,7 +135,7 @@ export default function Reports() {
             {report && !isLoading && !isReportEmpty && (
               <button
                 onClick={handleExport}
-                className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors shadow-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm"
               >
                 <Download className="h-4 w-4" />
                 Exportar
@@ -135,9 +144,9 @@ export default function Reports() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          {/* Seção de Datas - Sempre Visível */}
-          <div className="p-6 border-b border-gray-100">
+        {/* Seção de Datas e Quick Ranges */}
+        <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="col-span-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -154,7 +163,7 @@ export default function Reports() {
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full rounded-lg border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
                   <div className="space-y-2">
@@ -170,7 +179,7 @@ export default function Reports() {
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full rounded-lg border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -185,32 +194,31 @@ export default function Reports() {
                 </button>
               </div>
             </div>
-
             <div className="flex flex-wrap gap-2 mt-4">
               <button
                 onClick={() => setQuickRange(7)}
-                className="px-4 py-2 text-sm bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                className="px-4 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
               >
                 Últimos 7 dias
               </button>
               <button
                 onClick={() => setQuickRange(30)}
-                className="px-4 py-2 text-sm bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                className="px-4 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
               >
                 Últimos 30 dias
               </button>
               <button
                 onClick={() => setQuickRange(90)}
-                className="px-4 py-2 text-sm bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                className="px-4 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
               >
                 Últimos 90 dias
               </button>
             </div>
           </div>
 
-          {/* Filtros Avançados - Colapsável */}
+          {/* Filtros Avançados */}
           {showAdvancedFilters && (
-            <div className="p-6 border-b border-gray-100 bg-gray-50">
+            <div className="p-6 border-b border-gray-200 bg-gray-50">
               <h3 className="text-sm font-medium text-gray-700 mb-4">Filtros Avançados</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Categoria */}
@@ -221,7 +229,7 @@ export default function Reports() {
                     onChange={(e) =>
                       setAdvancedFilters((prev) => ({ ...prev, category: e.target.value }))
                     }
-                    className="w-full rounded-lg border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="w-full rounded-lg border-gray-300 shadow-sm px-4 py-2 focus:border-blue-500 focus:ring-blue-500"
                   >
                     <option value="">Todas as categorias</option>
                     <option value="espetinho">Espetinho</option>
@@ -237,7 +245,6 @@ export default function Reports() {
                     <option value="lanche">Lanche</option>
                   </select>
                 </div>
-
                 {/* Faixa de Preço */}
                 <div className="space-y-2">
                   <label className="text-sm text-gray-600">Faixa de Preço</label>
@@ -246,7 +253,7 @@ export default function Reports() {
                     onChange={(e) =>
                       setAdvancedFilters((prev) => ({ ...prev, priceRange: e.target.value }))
                     }
-                    className="w-full rounded-lg border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="w-full rounded-lg border-gray-300 shadow-sm px-4 py-2 focus:border-blue-500 focus:ring-blue-500"
                   >
                     <option value="">Todos os preços</option>
                     <option value="0-15">Até R$ 15,00</option>
@@ -254,7 +261,6 @@ export default function Reports() {
                     <option value="30+">Acima de R$ 30,00</option>
                   </select>
                 </div>
-
                 {/* Ordenar por */}
                 <div className="space-y-2">
                   <label className="text-sm text-gray-600">Ordenar por</label>
@@ -263,7 +269,7 @@ export default function Reports() {
                     onChange={(e) =>
                       setAdvancedFilters((prev) => ({ ...prev, sortBy: e.target.value }))
                     }
-                    className="w-full rounded-lg border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="w-full rounded-lg border-gray-300 shadow-sm px-4 py-2 focus:border-blue-500 focus:ring-blue-500"
                   >
                     <option value="quantidade">Quantidade Vendida</option>
                     <option value="receita">Maior Receita</option>
@@ -298,7 +304,7 @@ export default function Reports() {
             <div className="p-6 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Card 1: Total de Pedidos */}
-                <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-sm relative overflow-hidden">
+                <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
                   <div className="relative z-10">
                     <div className="flex items-center justify-between">
                       <p className="text-blue-100">Total de Pedidos</p>
@@ -312,7 +318,7 @@ export default function Reports() {
                 </div>
 
                 {/* Card 2: Receita Total */}
-                <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-sm relative overflow-hidden">
+                <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
                   <div className="relative z-10">
                     <div className="flex items-center justify-between">
                       <p className="text-green-100">Receita Total</p>
@@ -328,7 +334,7 @@ export default function Reports() {
                 </div>
 
                 {/* Card 3: Itens Vendidos */}
-                <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-sm relative overflow-hidden">
+                <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
                   <div className="relative z-10">
                     <div className="flex items-center justify-between">
                       <p className="text-purple-100">Itens Vendidos</p>
@@ -342,48 +348,45 @@ export default function Reports() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="text-lg font-semibold text-gray-900">
                     Produtos Mais Vendidos
                   </h3>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                          Produto
-                        </th>
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                          Quantidade
-                        </th>
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                          Receita
-                        </th>
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                        Produto
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                        Quantidade
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                        Receita
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.topProducts.map((product, index) => (
+                      <tr
+                        key={index}
+                        className="border-t border-gray-100 hover:bg-gray-50 transition-colors"
+                      >
+                        <td className="px-6 py-4 text-gray-900">{product.name}</td>
+                        <td className="px-6 py-4 text-gray-900">{product.quantity}</td>
+                        <td className="px-6 py-4 text-gray-900">
+                          {formatCurrency(product.revenue)}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {report.topProducts.map((product, index) => (
-                        <tr
-                          key={index}
-                          className="border-t border-gray-100 hover:bg-gray-50 transition-colors"
-                        >
-                          <td className="px-6 py-4 text-gray-900">{product.name}</td>
-                          <td className="px-6 py-4 text-gray-900">{product.quantity}</td>
-                          <td className="px-6 py-4 text-gray-900">
-                            {formatCurrency(product.revenue)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
-          {/* Caso não haja resultados */}
           {report && !isLoading && isReportEmpty && (
             <div className="p-12 flex flex-col items-center justify-center text-center">
               <div className="bg-yellow-50 rounded-full p-3 mb-4">

@@ -82,7 +82,6 @@ export default function Orders() {
       await loadOrders();
     } catch (error) {
       console.error('Error creating order:', error);
-      // You could add a toast notification here
     }
   };
 
@@ -125,9 +124,9 @@ export default function Orders() {
 
   if (!isElectron) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-center space-y-4">
-          <div className="text-4xl text-gray-400">⚡</div>
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center space-y-4 bg-white p-8 rounded-2xl shadow-lg">
+          <div className="text-5xl text-gray-400">⚡</div>
           <p className="text-gray-600 font-medium">Este aplicativo deve ser executado no Electron.</p>
         </div>
       </div>
@@ -136,9 +135,9 @@ export default function Orders() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-center space-y-4">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center space-y-4 bg-white p-8 rounded-2xl shadow-lg">
+          <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto" />
           <p className="text-gray-600 font-medium">Carregando comandas...</p>
         </div>
       </div>
@@ -146,25 +145,27 @@ export default function Orders() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 space-y-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Comandas Ativas</h1>
-            <p className="text-gray-600 mt-1">Gerencie os pedidos ativos do estabelecimento</p>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+          <div className="bg-white p-6 rounded-2xl shadow-md w-full md:w-auto">
+            <h1 className="text-3xl font-bold text-gray-900 bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+              Comandas Ativas
+            </h1>
+            <p className="text-gray-600 mt-2">Gerencie os pedidos ativos do estabelecimento</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
             <SearchInput
               onSearch={setSearchTerm}
               placeholder="Pesquisar comandas..."
-              className="w-full sm:w-80"
+              className="w-full sm:w-96 shadow-lg"
             />
             <button
               onClick={() => setIsNewOrderModalOpen(true)}
-              className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-sm"
+              className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-3 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
             >
-              <PlusCircle size={20} />
-              Nova Comanda
+              <PlusCircle size={22} />
+              <span className="font-semibold">Nova Comanda</span>
             </button>
           </div>
         </div>
@@ -187,13 +188,13 @@ export default function Orders() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 bg-white rounded-lg shadow-sm">
-            <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma comanda encontrada</h3>
-            <p className="text-gray-600">
+          <div className="text-center py-16 bg-white rounded-2xl shadow-lg">
+            <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-3">Nenhuma comanda encontrada</h3>
+            <p className="text-gray-600 max-w-md mx-auto">
               {searchTerm
                 ? 'Nenhuma comanda corresponde aos critérios de pesquisa.'
-                : 'Crie uma nova comanda para começar.'}
+                : 'Crie uma nova comanda para começar a registrar pedidos.'}
             </p>
           </div>
         )}
@@ -201,13 +202,13 @@ export default function Orders() {
 
       {/* Modal de Nova Comanda */}
       {isNewOrderModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md transform transition-all">
             <div className="flex justify-between items-center p-6 border-b">
-              <h3 className="text-xl font-semibold text-gray-900">Nova Comanda</h3>
+              <h3 className="text-2xl font-semibold text-gray-900">Nova Comanda</h3>
               <button
                 onClick={() => setIsNewOrderModalOpen(false)}
-                className="text-gray-400 hover:text-gray-500 transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-lg"
               >
                 <X size={24} />
               </button>
@@ -221,7 +222,7 @@ export default function Orders() {
                 <select
                   value={selectedTable}
                   onChange={(e) => setSelectedTable(Number(e.target.value))}
-                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 h-12"
                 >
                   {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
                     <option key={num} value={num}>Mesa {num}</option>
@@ -238,22 +239,22 @@ export default function Orders() {
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Digite o nome do cliente"
-                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 h-12"
                   required
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-4 pt-6">
                 <button
                   type="button"
                   onClick={() => setIsNewOrderModalOpen(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                  className="px-6 py-3 text-white bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-300 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                   disabled={!customerName.trim()}
                 >
                   Criar Comanda

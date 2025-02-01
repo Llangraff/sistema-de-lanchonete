@@ -1,10 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, AlertTriangle, Edit2, Trash2, Package, ArrowUp, ArrowDown, Search, Filter, RefreshCw } from 'lucide-react';
+import {
+  Plus,
+  AlertTriangle,
+  Edit2,
+  Trash2,
+  Package,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  Filter,
+  RefreshCw
+} from 'lucide-react';
 import { formatDate } from '../utils/database';
+import { Button } from '@/components/ui/Button'; // Importa o componente Button atualizado
 
 interface InventoryItem {
   id: number;
-  name: string;
+  product_id?: number | null;
+  product_name?: string; // preenchido via backend com COALESCE(p.name, ii.manual_name)
+  manual_name?: string;
   quantity: number;
   unit: string;
   min_quantity: number;
@@ -34,9 +48,9 @@ export default function Inventory() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Form states
+  // Form state para adição manual de item no estoque
   const [newItem, setNewItem] = useState({
-    name: '',
+    manual_name: '',
     quantity: 0,
     unit: 'kg',
     min_quantity: 0,
@@ -58,27 +72,31 @@ export default function Inventory() {
 
   const loadInventory = async () => {
     if (!window.db) return;
-    const items = await window.db.getInventoryItems();
-    setItems(items);
+    const fetchedItems = await window.db.getInventoryItems();
+    setItems(fetchedItems);
   };
 
   const loadLowStockItems = async () => {
     if (!window.db) return;
-    const items = await window.db.getLowStockItems();
-    setLowStockItems(items);
+    const fetchedItems = await window.db.getLowStockItems();
+    setLowStockItems(fetchedItems);
   };
 
   const loadTransactions = async (itemId: number) => {
     if (!window.db) return;
-    const transactions = await window.db.getInventoryTransactions(itemId);
-    setTransactions(transactions);
+    const fetchedTransactions = await window.db.getInventoryTransactions(itemId);
+    setTransactions(fetchedTransactions);
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!window.db) return;
+    if (newItem.manual_name.trim() === '') {
+      alert("Digite o nome do item.");
+      return;
+    }
     await window.db.addInventoryItem(newItem);
-    setNewItem({ name: '', quantity: 0, unit: 'kg', min_quantity: 0 });
+    setNewItem({ manual_name: '', quantity: 0, unit: 'kg', min_quantity: 0 });
     setIsAddModalOpen(false);
     loadInventory();
     loadLowStockItems();
@@ -87,22 +105,16 @@ export default function Inventory() {
   const handleUpdateQuantity = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!window.db || !selectedItem) return;
-
-    // Ajuste na lógica:
-    // Agora, para "entrada", o valor é invertido (negativo) e para "saída", é positivo.
-    // Dessa forma, se a lógica do backend inverte o sinal,
-    // a movimentação ficará correta: "entrada" aumenta o estoque e "saída" diminui.
+    // Para "entrada", inverte o sinal; para "saída", mantém positivo.
     const quantity = updateQuantity.type === 'entrada'
       ? -Math.abs(updateQuantity.quantity)
       : Math.abs(updateQuantity.quantity);
-
     await window.db.updateInventoryQuantity({
       id: selectedItem.id,
       quantity,
       type: updateQuantity.type,
       description: updateQuantity.description,
     });
-
     setUpdateQuantity({ quantity: 0, type: 'entrada', description: '' });
     setIsUpdateModalOpen(false);
     loadInventory();
@@ -115,16 +127,12 @@ export default function Inventory() {
   const handleEditItemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editItem || !window.db) return;
-
     await window.db.updateInventoryItem({
       id: editItem.id,
-      name: editItem.name,
       unit: editItem.unit,
       min_quantity: editItem.min_quantity,
     });
-
     setIsEditModalOpen(false);
-    // Se o item editado for o item selecionado, atualiza-o na seleção
     if (selectedItem && selectedItem.id === editItem.id) {
       setSelectedItem(editItem);
     }
@@ -138,7 +146,6 @@ export default function Inventory() {
     await window.db.deleteInventoryItem(itemToDelete.id);
     setIsDeleteModalOpen(false);
     setItemToDelete(null);
-
     if (selectedItem && selectedItem.id === itemToDelete.id) {
       setSelectedItem(null);
       setTransactions([]);
@@ -157,15 +164,22 @@ export default function Inventory() {
     setIsDeleteModalOpen(true);
   };
 
+  const refreshInventory = () => {
+    loadInventory();
+    loadLowStockItems();
+  };
+
   const filteredItems = items
-    .filter(item => 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    .filter(item =>
+      (item.product_name || item.manual_name || "").toLowerCase().includes(searchTerm.toLowerCase()) &&
       (filterUnit ? item.unit === filterUnit : true)
     )
     .sort((a, b) => {
       const factor = sortOrder === 'asc' ? 1 : -1;
+      const nameA = a.product_name || a.manual_name || "";
+      const nameB = b.product_name || b.manual_name || "";
       if (sortBy === 'name') {
-        return a.name.localeCompare(b.name) * factor;
+        return nameA.localeCompare(nameB) * factor;
       }
       return (a.quantity - b.quantity) * factor;
     });
@@ -185,13 +199,22 @@ export default function Inventory() {
             <p className="text-sm text-gray-500">Gerencie seus produtos e insumos</p>
           </div>
         </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus className="h-5 w-5" />
-          Novo Item
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <Plus className="h-5 w-5" />
+            Novo Item
+          </button>
+          <button
+            onClick={refreshInventory}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            title="Atualizar Estoque"
+          >
+            <RefreshCw className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {/* Alertas de Estoque Baixo */}
@@ -211,12 +234,14 @@ export default function Inventory() {
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {lowStockItems.map((item) => (
+            {lowStockItems.map(item => (
               <div
                 key={item.id}
                 className="bg-white bg-opacity-50 p-4 rounded-lg border border-yellow-100"
               >
-                <h3 className="font-medium text-yellow-900">{item.name}</h3>
+                <h3 className="font-medium text-yellow-900">
+                  {item.product_name || item.manual_name}
+                </h3>
                 <div className="mt-1 flex items-center justify-between">
                   <span className="text-sm text-yellow-700">
                     Atual: {item.quantity} {item.unit}
@@ -230,10 +255,7 @@ export default function Inventory() {
                     <div
                       className="bg-yellow-400 h-2 rounded-full"
                       style={{
-                        width: `${Math.min(
-                          (item.quantity / item.min_quantity) * 100,
-                          100
-                        )}%`,
+                        width: `${Math.min((item.quantity / item.min_quantity) * 100, 100)}%`,
                       }}
                     />
                   </div>
@@ -254,7 +276,7 @@ export default function Inventory() {
                 type="text"
                 placeholder="Buscar itens..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </div>
@@ -262,7 +284,7 @@ export default function Inventory() {
           <div className="flex gap-2">
             <select
               value={filterUnit}
-              onChange={(e) => setFilterUnit(e.target.value)}
+              onChange={e => setFilterUnit(e.target.value)}
               className="px-4 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             >
               <option value="">Todas as unidades</option>
@@ -280,9 +302,7 @@ export default function Inventory() {
                     setSortOrder('asc');
                   }
                 }}
-                className={`p-1.5 rounded ${
-                  sortBy === 'name' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'
-                }`}
+                className={`p-1.5 rounded ${sortBy === 'name' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
               >
                 <Filter className="h-4 w-4" />
               </button>
@@ -295,9 +315,7 @@ export default function Inventory() {
                     setSortOrder('desc');
                   }
                 }}
-                className={`p-1.5 rounded ${
-                  sortBy === 'quantity' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'
-                }`}
+                className={`p-1.5 rounded ${sortBy === 'quantity' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
               >
                 <RefreshCw className="h-4 w-4" />
               </button>
@@ -313,7 +331,7 @@ export default function Inventory() {
             <h2 className="text-lg font-semibold text-gray-900">Itens em Estoque</h2>
           </div>
           <div className="divide-y divide-gray-100">
-            {filteredItems.map((item) => (
+            {filteredItems.map(item => (
               <div
                 key={item.id}
                 className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer ${selectedItem?.id === item.id ? 'bg-blue-50' : ''}`}
@@ -329,7 +347,9 @@ export default function Inventory() {
                         <Package className="h-5 w-5" />
                       </div>
                       <div>
-                        <h3 className="font-medium text-gray-900">{item.name}</h3>
+                        <h3 className="font-medium text-gray-900">
+                          {item.product_name || item.manual_name}
+                        </h3>
                         <div className="flex items-center gap-4 mt-1">
                           <span className="text-sm text-gray-500">
                             Quantidade: {item.quantity} {item.unit}
@@ -343,7 +363,7 @@ export default function Inventory() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         setSelectedItem(item);
                         setUpdateQuantity({ ...updateQuantity, type: 'entrada' });
@@ -355,7 +375,7 @@ export default function Inventory() {
                       <ArrowUp className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         setSelectedItem(item);
                         setUpdateQuantity({ ...updateQuantity, type: 'saida' });
@@ -367,7 +387,7 @@ export default function Inventory() {
                       <ArrowDown className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         openEditModal(item);
                       }}
@@ -376,16 +396,19 @@ export default function Inventory() {
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDeleteModal(item);
-                      }}
-                      className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {(item.product_id === null || item.product_id === undefined) && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={e => {
+                          e.stopPropagation();
+                          openDeleteModal(item);
+                        }}
+                        title="Excluir"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -406,11 +429,11 @@ export default function Inventory() {
                 Histórico de Movimentações
               </h2>
               <p className="text-sm text-gray-500 mt-1">
-                {selectedItem.name} - Atual: {selectedItem.quantity} {selectedItem.unit}
+                {selectedItem.product_name || selectedItem.manual_name} - Atual: {selectedItem.quantity} {selectedItem.unit}
               </p>
             </div>
             <div className="p-6 space-y-4">
-              {transactions.map((transaction) => (
+              {transactions.map(transaction => (
                 <div
                   key={transaction.id}
                   className={`p-4 rounded-lg border ${transaction.type === 'entrada' ? 'border-green-100 bg-green-50' : 'border-red-100 bg-red-50'}`}
@@ -463,7 +486,7 @@ export default function Inventory() {
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
-            <h3 className="text-lg font-semibold mb-4">Adicionar Novo Item</h3>
+            <h3 className="text-lg font-semibold mb-4">Adicionar Novo Item no Estoque</h3>
             <form onSubmit={handleAddItem} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -471,11 +494,12 @@ export default function Inventory() {
                 </label>
                 <input
                   type="text"
-                  value={newItem.name}
-                  onChange={(e) =>
-                    setNewItem({ ...newItem, name: e.target.value })
+                  value={newItem.manual_name}
+                  onChange={e =>
+                    setNewItem({ ...newItem, manual_name: e.target.value })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
+                  placeholder="Digite o nome do item"
                   required
                 />
               </div>
@@ -487,7 +511,7 @@ export default function Inventory() {
                   type="number"
                   step="0.01"
                   value={newItem.quantity}
-                  onChange={(e) =>
+                  onChange={e =>
                     setNewItem({ ...newItem, quantity: parseFloat(e.target.value) })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
@@ -500,10 +524,11 @@ export default function Inventory() {
                 </label>
                 <select
                   value={newItem.unit}
-                  onChange={(e) =>
+                  onChange={e =>
                     setNewItem({ ...newItem, unit: e.target.value })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
+                  required
                 >
                   <option value="kg">Quilogramas (kg)</option>
                   <option value="g">Gramas (g)</option>
@@ -520,11 +545,8 @@ export default function Inventory() {
                   type="number"
                   step="0.01"
                   value={newItem.min_quantity}
-                  onChange={(e) =>
-                    setNewItem({
-                      ...newItem,
-                      min_quantity: parseFloat(e.target.value),
-                    })
+                  onChange={e =>
+                    setNewItem({ ...newItem, min_quantity: parseFloat(e.target.value) })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
                   required
@@ -555,7 +577,7 @@ export default function Inventory() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
             <h3 className="text-lg font-semibold mb-4">
-              Movimentar Estoque - {selectedItem.name}
+              Movimentar Estoque - {selectedItem.product_name || selectedItem.manual_name}
             </h3>
             <form onSubmit={handleUpdateQuantity} className="space-y-4">
               <div>
@@ -564,10 +586,11 @@ export default function Inventory() {
                 </label>
                 <select
                   value={updateQuantity.type}
-                  onChange={(e) =>
+                  onChange={e =>
                     setUpdateQuantity({ ...updateQuantity, type: e.target.value })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
+                  required
                 >
                   <option value="entrada">Entrada</option>
                   <option value="saida">Saída</option>
@@ -581,11 +604,8 @@ export default function Inventory() {
                   type="number"
                   step="0.01"
                   value={updateQuantity.quantity}
-                  onChange={(e) =>
-                    setUpdateQuantity({
-                      ...updateQuantity,
-                      quantity: parseFloat(e.target.value),
-                    })
+                  onChange={e =>
+                    setUpdateQuantity({ ...updateQuantity, quantity: parseFloat(e.target.value) })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
                   required
@@ -597,7 +617,7 @@ export default function Inventory() {
                 </label>
                 <textarea
                   value={updateQuantity.description}
-                  onChange={(e) =>
+                  onChange={e =>
                     setUpdateQuantity({ ...updateQuantity, description: e.target.value })
                   }
                   className="w-full rounded-lg border-gray-200 p-2.5"
@@ -625,38 +645,23 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Modal para editar dados do item */}
+      {/* Modal para editar item */}
       {isEditModalOpen && editItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
             <h3 className="text-lg font-semibold mb-4">
-              Editar Item - {editItem.name}
+              Editar Item - {editItem.product_name || editItem.manual_name}
             </h3>
             <form onSubmit={handleEditItemSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome do Item
-                </label>
-                <input
-                  type="text"
-                  value={editItem.name}
-                  onChange={(e) =>
-                    setEditItem({ ...editItem, name: e.target.value })
-                  }
-                  className="w-full rounded-lg border-gray-200 p-2.5"
-                  required
-                />
-              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Unidade
                 </label>
                 <select
                   value={editItem.unit}
-                  onChange={(e) =>
-                    setEditItem({ ...editItem, unit: e.target.value })
-                  }
+                  onChange={e => setEditItem({ ...editItem, unit: e.target.value })}
                   className="w-full rounded-lg border-gray-200 p-2.5"
+                  required
                 >
                   <option value="kg">Quilogramas (kg)</option>
                   <option value="g">Gramas (g)</option>
@@ -673,12 +678,7 @@ export default function Inventory() {
                   type="number"
                   step="0.01"
                   value={editItem.min_quantity}
-                  onChange={(e) =>
-                    setEditItem({
-                      ...editItem,
-                      min_quantity: parseFloat(e.target.value),
-                    })
-                  }
+                  onChange={e => setEditItem({ ...editItem, min_quantity: parseFloat(e.target.value) })}
                   className="w-full rounded-lg border-gray-200 p-2.5"
                   required
                 />
@@ -706,13 +706,13 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Modal de confirmação para excluir item */}
+      {/* Modal de confirmação para exclusão (apenas para itens manuais) */}
       {isDeleteModalOpen && itemToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
             <h3 className="text-lg font-semibold mb-4">Excluir Item</h3>
             <p className="mb-4">
-              Tem certeza que deseja excluir o item <strong>{itemToDelete.name}</strong>? Essa ação não poderá ser desfeita.
+              Tem certeza que deseja excluir o item <strong>{itemToDelete.product_name || itemToDelete.manual_name}</strong>? Essa ação não poderá ser desfeita.
             </p>
             <div className="flex justify-end space-x-3">
               <button

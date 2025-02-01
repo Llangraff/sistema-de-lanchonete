@@ -14,10 +14,10 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js') // Assumindo preload.js na mesma pasta que main.js
+      preload: path.join(__dirname, 'preload.js') // Certifique-se de ter um preload configurado
     }
   });
-  
+
   // Remove a barra de menu
   Menu.setApplicationMenu(null);
 
@@ -25,17 +25,14 @@ function createWindow() {
   log.info('App starting...');
 
   if (isDev) {
-    // Em desenvolvimento, carregue a aplicação no Vite dev server
     mainWindow.loadURL('http://localhost:3000').catch(err => {
       log.error('Failed to load dev URL:', err);
     });
     mainWindow.webContents.openDevTools();
   } else {
-    // Em produção, carregue o index.html do dist dentro do app.asar
     const indexPath = path.join(app.getAppPath(), 'dist', 'index.html');
     log.info('Loading index from:', indexPath);
-
-    mainWindow.loadFile(indexPath).catch((err) => {
+    mainWindow.loadFile(indexPath).catch(err => {
       log.error('Failed to load index.html:', err);
       dialog.showErrorBox('Erro', `Falha ao carregar o aplicativo: ${err.message}`);
     });
@@ -49,13 +46,13 @@ function createWindow() {
 function initializeDatabase() {
   try {
     const dbPath = isDev
-      ? path.join(__dirname, 'database.db')  // Em dev, db local na pasta electron
-      : path.join(process.resourcesPath, 'database.db'); // Em produção, db no resources
+      ? path.join(__dirname, 'database.db')
+      : path.join(process.resourcesPath, 'database.db');
 
     log.info('Database path:', dbPath);
     db = new Database(dbPath);
 
-    // Criação das tabelas necessárias
+    // Criação do schema com as novas colunas
     db.exec(`
       CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,12 +64,35 @@ function initializeDatabase() {
         deleted BOOLEAN NOT NULL DEFAULT 0
       );
 
+      CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_number INTEGER,
+        customer_name TEXT,
+        status TEXT,
+        closed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER,
+        product_id INTEGER,
+        quantity REAL,
+        paid_quantity REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(order_id) REFERENCES orders(id),
+        FOREIGN KEY(product_id) REFERENCES products(id)
+      );
+
       CREATE TABLE IF NOT EXISTS inventory_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
+        product_id INTEGER,
+        manual_name TEXT,
         quantity REAL NOT NULL,
         unit TEXT NOT NULL,
-        min_quantity REAL NOT NULL
+        min_quantity REAL NOT NULL,
+        disable_low_stock_alert BOOLEAN NOT NULL DEFAULT 0,
+        FOREIGN KEY(product_id) REFERENCES products(id)
       );
 
       CREATE TABLE IF NOT EXISTS inventory_transactions (
@@ -81,7 +101,8 @@ function initializeDatabase() {
         quantity REAL NOT NULL,
         type TEXT NOT NULL,
         description TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(inventory_item_id) REFERENCES inventory_items(id)
       );
     `);
   } catch (error) {
@@ -94,7 +115,6 @@ function initializeDatabase() {
 app.whenReady().then(() => {
   initializeDatabase();
   createWindow();
-  
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -104,9 +124,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ========================================================================
 // =========================== IPC HANDLERS ===============================
-// ========================================================================
 
 // Produtos
 ipcMain.handle('get-products', async () => {
@@ -114,7 +132,7 @@ ipcMain.handle('get-products', async () => {
     const stmt = db.prepare('SELECT * FROM products WHERE deleted = FALSE');
     return stmt.all();
   } catch (error) {
-    console.error('Erro ao carregar produtos:', error);
+    log.error('Erro ao carregar produtos:', error);
     throw error;
   }
 });
@@ -122,7 +140,13 @@ ipcMain.handle('get-products', async () => {
 ipcMain.handle('add-product', (_, product) => {
   try {
     const stmt = db.prepare('INSERT INTO products (name, price, category) VALUES (?, ?, ?)');
-    return stmt.run(product.name, product.price, product.category);
+    const result = stmt.run(product.name, product.price, product.category);
+    // Cria item de estoque vinculado ao produto, com quantidade 0
+    db.prepare(`
+      INSERT INTO inventory_items (product_id, quantity, unit, min_quantity)
+      VALUES (?, 0, ?, 0)
+    `).run(result.lastInsertRowid, product.unit || 'un');
+    return result;
   } catch (error) {
     log.error('Error adding product:', error);
     throw error;
@@ -145,7 +169,7 @@ ipcMain.handle('delete-product', async (_, id) => {
     stmt.run(id);
     return true;
   } catch (error) {
-    console.error('Erro ao desativar produto:', error);
+    log.error('Erro ao desativar produto:', error);
     throw error;
   }
 });
@@ -153,9 +177,7 @@ ipcMain.handle('delete-product', async (_, id) => {
 // Pedidos
 ipcMain.handle('get-orders', () => {
   const orders = db.prepare(`
-    SELECT 
-      o.*, 
-      COALESCE(SUM(oi.quantity * p.price), 0) as total
+    SELECT o.*, COALESCE(SUM(oi.quantity * p.price), 0) as total
     FROM orders o
     LEFT JOIN order_items oi ON o.id = oi.order_id
     LEFT JOIN products p ON oi.product_id = p.id
@@ -166,13 +188,7 @@ ipcMain.handle('get-orders', () => {
   return orders.map(order => ({
     ...order,
     items: db.prepare(`
-      SELECT 
-        oi.id,
-        oi.quantity,
-        oi.paid_quantity,
-        p.name as product_name,
-        p.price,
-        p.id as product_id
+      SELECT oi.id, oi.quantity, oi.paid_quantity, p.name as product_name, p.price, p.id as product_id
       FROM order_items oi
       JOIN products p ON oi.product_id = p.id
       WHERE oi.order_id = ?
@@ -192,19 +208,17 @@ ipcMain.handle('create-order', (_, { tableNumber, customerName }) => {
 ipcMain.handle('add-order-item', (_, { orderId, productId, quantity }) => {
   try {
     const existingItem = db.prepare(`
-      SELECT id, quantity FROM order_items 
+      SELECT id, quantity FROM order_items
       WHERE order_id = ? AND product_id = ?
     `).get(orderId, productId);
-
     if (existingItem) {
       return db.prepare(`
-        UPDATE order_items 
-        SET quantity = quantity + ? 
+        UPDATE order_items SET quantity = quantity + ?
         WHERE id = ?
       `).run(quantity, existingItem.id);
     } else {
       return db.prepare(`
-        INSERT INTO order_items (order_id, product_id, quantity) 
+        INSERT INTO order_items (order_id, product_id, quantity)
         VALUES (?, ?, ?)
       `).run(orderId, productId, quantity);
     }
@@ -226,17 +240,14 @@ ipcMain.handle('remove-order-item', (_, itemId) => {
 ipcMain.handle('pay-partial-order-items', (_, { orderId, items }) => {
   try {
     const updateStmt = db.prepare(`
-      UPDATE order_items 
-      SET paid_quantity = paid_quantity + ? 
+      UPDATE order_items SET paid_quantity = paid_quantity + ?
       WHERE id = ? AND order_id = ?
     `);
-
     const transaction = db.transaction(() => {
       items.forEach(({ itemId, quantity }) => {
         updateStmt.run(quantity, itemId, orderId);
       });
     });
-
     transaction();
     return { success: true };
   } catch (error) {
@@ -245,16 +256,69 @@ ipcMain.handle('pay-partial-order-items', (_, { orderId, items }) => {
   }
 });
 
-// Fechar pedido - utilizando DATETIME('now', 'localtime') para ajustar ao fuso de Brasília
+// Fechar pedido: baixa automática no estoque para TODOS os produtos,
+// deduzindo o que estiver disponível.
 ipcMain.handle('close-order', (_, orderId) => {
   try {
-    return db.prepare(`
-      UPDATE orders 
-      SET status = 'closed', closed_at = DATETIME('now', 'localtime')
-      WHERE id = ?
-    `).run(orderId);
+    const closeOrderTransaction = db.transaction(() => {
+      // Atualiza o pedido para "closed"
+      db.prepare(`
+        UPDATE orders
+        SET status = 'closed', closed_at = DATETIME('now', 'localtime')
+        WHERE id = ?
+      `).run(orderId);
+
+      // Recupera os itens do pedido
+      const orderItems = db.prepare(`
+        SELECT product_id, quantity
+        FROM order_items
+        WHERE order_id = ?
+      `).all(orderId);
+
+      orderItems.forEach(item => {
+        // Busca o item de estoque correspondente
+        const inventoryItem = db.prepare(`
+          SELECT id, quantity
+          FROM inventory_items
+          WHERE product_id = ?
+        `).get(item.product_id);
+        if (inventoryItem) {
+          let quantityToDeduct = item.quantity;
+          if (inventoryItem.quantity < item.quantity) {
+            quantityToDeduct = inventoryItem.quantity;
+            log.warn(`Estoque insuficiente para o produto com ID: ${item.product_id}. Deduzindo apenas ${quantityToDeduct}.`);
+          }
+          const newQuantity = inventoryItem.quantity - quantityToDeduct;
+          db.prepare(`
+            UPDATE inventory_items
+            SET quantity = ?
+            WHERE id = ?
+          `).run(newQuantity, inventoryItem.id);
+          db.prepare(`
+            INSERT INTO inventory_transactions (inventory_item_id, quantity, type, description)
+            VALUES (?, ?, ?, ?)
+          `).run(inventoryItem.id, quantityToDeduct, 'saida', 'Venda automática via pedido ' + orderId);
+        }
+      });
+    });
+    closeOrderTransaction();
+    return { success: true };
   } catch (error) {
-    log.error('Erro ao fechar pedido:', error);
+    log.error('Erro ao fechar pedido e atualizar estoque:', error);
+    throw error;
+  }
+});
+
+// Handler para alternar a notificação de estoque baixo
+ipcMain.handle('toggle-low-stock-alert', (_, { itemId, disable }) => {
+  try {
+    return db.prepare(`
+      UPDATE inventory_items
+      SET disable_low_stock_alert = ?
+      WHERE id = ?
+    `).run(disable ? 1 : 0, itemId);
+  } catch (error) {
+    log.error('Error toggling low stock alert:', error);
     throw error;
   }
 });
@@ -262,17 +326,32 @@ ipcMain.handle('close-order', (_, orderId) => {
 // Estoque
 ipcMain.handle('get-inventory-items', () => {
   try {
-    return db.prepare('SELECT * FROM inventory_items ORDER BY name').all();
+    return db.prepare(`
+      SELECT ii.*, COALESCE(p.name, ii.manual_name) AS product_name, p.price, p.category
+      FROM inventory_items ii
+      LEFT JOIN products p ON ii.product_id = p.id
+      ORDER BY ii.id
+    `).all();
   } catch (error) {
-    console.error('Error fetching inventory items:', error);
+    log.error('Error fetching inventory items:', error);
     return [];
   }
 });
 
 ipcMain.handle('add-inventory-item', (_, item) => {
   try {
-    const stmt = db.prepare('INSERT INTO inventory_items (name, quantity, unit, min_quantity) VALUES (?, ?, ?, ?)');
-    return stmt.run(item.name, item.quantity, item.unit, item.min_quantity);
+    // Se for adicionado manualmente, product_id será NULL
+    if (item.manual_name && item.manual_name.trim() !== "") {
+      return db.prepare(`
+        INSERT INTO inventory_items (product_id, manual_name, quantity, unit, min_quantity, disable_low_stock_alert)
+        VALUES (NULL, ?, ?, ?, ?, 0)
+      `).run(item.manual_name, item.quantity, item.unit, item.min_quantity);
+    } else {
+      return db.prepare(`
+        INSERT INTO inventory_items (product_id, quantity, unit, min_quantity, disable_low_stock_alert)
+        VALUES (?, ?, ?, ?, 0)
+      `).run(item.product_id, item.quantity, item.unit, item.min_quantity);
+    }
   } catch (error) {
     log.error('Error adding inventory item:', error);
     throw error;
@@ -285,31 +364,23 @@ ipcMain.handle('update-inventory-quantity', (_, { id, quantity, type, descriptio
     if (!currentItem) {
       throw new Error('Item de estoque não encontrado');
     }
-
     const newQuantity = type === 'add'
       ? currentItem.quantity + quantity
       : currentItem.quantity - quantity;
-
     if (newQuantity < 0) {
       throw new Error('Quantidade insuficiente no estoque');
     }
-
     const updateStmt = db.prepare(`
-      UPDATE inventory_items 
-      SET quantity = ? 
-      WHERE id = ?
+      UPDATE inventory_items SET quantity = ? WHERE id = ?
     `);
-
     const transactionStmt = db.prepare(`
       INSERT INTO inventory_transactions (inventory_item_id, quantity, type, description)
       VALUES (?, ?, ?, ?)
     `);
-
     db.transaction(() => {
       updateStmt.run(newQuantity, id);
       transactionStmt.run(id, quantity, type, description);
     })();
-
     return db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
   } catch (error) {
     log.error('Error updating inventory quantity:', error);
@@ -320,8 +391,8 @@ ipcMain.handle('update-inventory-quantity', (_, { id, quantity, type, descriptio
 ipcMain.handle('get-inventory-transactions', (_, itemId) => {
   try {
     return db.prepare(`
-      SELECT * FROM inventory_transactions 
-      WHERE inventory_item_id = ? 
+      SELECT * FROM inventory_transactions
+      WHERE inventory_item_id = ?
       ORDER BY created_at DESC
     `).all(itemId);
   } catch (error) {
@@ -333,10 +404,11 @@ ipcMain.handle('get-inventory-transactions', (_, itemId) => {
 ipcMain.handle('get-low-stock-items', () => {
   try {
     return db.prepare(`
-      SELECT * 
-      FROM inventory_items 
-      WHERE quantity <= min_quantity 
-      ORDER BY name
+      SELECT ii.*, COALESCE(p.name, ii.manual_name) AS product_name, p.price, p.category
+      FROM inventory_items ii
+      LEFT JOIN products p ON ii.product_id = p.id
+      WHERE ii.quantity <= ii.min_quantity AND disable_low_stock_alert = 0
+      ORDER BY ii.id
     `).all();
   } catch (error) {
     log.error('Error getting low stock items:', error);
@@ -347,11 +419,12 @@ ipcMain.handle('get-low-stock-items', () => {
 // Atualizar/Excluir item de estoque
 ipcMain.handle('update-inventory-item', (_, item) => {
   try {
+    // Atualiza apenas os campos unit e min_quantity
     return db.prepare(`
       UPDATE inventory_items
-      SET name = ?, unit = ?, min_quantity = ?
+      SET unit = ?, min_quantity = ?
       WHERE id = ?
-    `).run(item.name, item.unit, item.min_quantity, item.id);
+    `).run(item.unit, item.min_quantity, item.id);
   } catch (error) {
     log.error('Error updating inventory item:', error);
     throw error;
@@ -360,28 +433,41 @@ ipcMain.handle('update-inventory-item', (_, item) => {
 
 ipcMain.handle('delete-inventory-item', (_, itemId) => {
   try {
-    return db.prepare('DELETE FROM inventory_items WHERE id = ?').run(itemId);
+    // Primeiro, recupera o item para verificar se está vinculado a um produto
+    const item = db.prepare('SELECT product_id FROM inventory_items WHERE id = ?').get(itemId);
+    if (!item) {
+      throw new Error('Item de estoque não encontrado');
+    }
+    // Se o item estiver vinculado a um produto (product_id não é NULL), não permite a exclusão
+    if (item.product_id !== null) {
+      throw new Error('Exclusão não permitida para itens vinculados a produtos');
+    }
+    // Executa a exclusão em transação (removendo também as movimentações relacionadas)
+    const deleteTransaction = db.transaction(() => {
+      db.prepare('DELETE FROM inventory_transactions WHERE inventory_item_id = ?').run(itemId);
+      db.prepare('DELETE FROM inventory_items WHERE id = ?').run(itemId);
+    });
+    deleteTransaction();
+    return true;
   } catch (error) {
     log.error('Error deleting inventory item:', error);
     throw error;
   }
 });
 
+
 // Relatórios
-// Ajustado para converter as datas para o fuso de Brasília (GMT-3)
-// e utilizar DATETIME com 'localtime' na consulta SQL
 ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sortBy }) => {
   try {
-    // Converte as datas para o formato ISO (YYYY-MM-DD HH:MM:SS) usando o locale sv-SE
-    const options = { 
-      timeZone: 'America/Sao_Paulo', 
-      hour12: false, 
-      year: 'numeric', 
-      month: '2-digit', 
-      day: '2-digit', 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit' 
+    const options = {
+      timeZone: 'America/Sao_Paulo',
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
     };
     const adjustedStartDate = new Date(startDate + 'T00:00:00').toLocaleString('sv-SE', options);
     const adjustedEndDate = new Date(endDate + 'T23:59:59').toLocaleString('sv-SE', options);
@@ -396,7 +482,6 @@ ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sor
       whereClause += ` AND p.category = ?`;
       params.push(category);
     }
-
     if (priceRange) {
       if (priceRange === '0-15') {
         whereClause += ` AND p.price <= 15`;
@@ -408,10 +493,9 @@ ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sor
     }
 
     const data = db.prepare(`
-      SELECT 
-        COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(oi.quantity * p.price), 0) as total_revenue,
-        COALESCE(SUM(oi.quantity), 0) as items_sold
+      SELECT COUNT(DISTINCT o.id) as total_orders,
+             COALESCE(SUM(oi.quantity * p.price), 0) as total_revenue,
+             COALESCE(SUM(oi.quantity), 0) as items_sold
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN products p ON oi.product_id = p.id
@@ -428,10 +512,9 @@ ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sor
     }
 
     const topProductsQuery = `
-      SELECT 
-        p.name,
-        SUM(oi.quantity) as quantity,
-        SUM(oi.quantity * p.price) as revenue
+      SELECT p.name,
+             SUM(oi.quantity) as quantity,
+             SUM(oi.quantity * p.price) as revenue
       FROM order_items oi
       JOIN products p ON oi.product_id = p.id
       JOIN orders o ON o.id = oi.order_id

@@ -1,10 +1,21 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Toaster, toast } from 'sonner';
-import { Plus, Loader2, AlertCircle, Edit, Search, Trash2, Package, ArrowLeft, ArrowRight, X } from 'lucide-react';
+import {
+  Plus,
+  Loader2,
+  AlertCircle,
+  Edit,
+  Search,
+  Trash2,
+  Package,
+  ArrowLeft,
+  ArrowRight,
+  X
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { SearchInput } from '@/components/SearchInput';
@@ -14,9 +25,24 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
   price: z.number().min(0.01, 'Preço deve ser maior que zero'),
-  category: z.enum(['espetinho', 'bebida', 'acompanhamento', 'comida', 'diversos', 'refeição', 'salgados', 'porcao', 'doce', 'sobremesa', 'lanche'], {
-    required_error: 'Selecione uma categoria',
-  }),
+  category: z.enum(
+    [
+      'espetinho',
+      'bebida',
+      'acompanhamento',
+      'comida',
+      'diversos',
+      'refeição',
+      'salgados',
+      'porcao',
+      'doce',
+      'sobremesa',
+      'lanche'
+    ],
+    {
+      required_error: 'Selecione uma categoria',
+    }
+  ),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
@@ -68,7 +94,13 @@ export default function Products() {
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<ProductFormData>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    formState: { errors, isSubmitting }
+  } = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       category: 'espetinho',
@@ -98,7 +130,7 @@ export default function Products() {
     queryFn: () => window.db.getProducts(),
   });
 
-  const filteredProducts = products.filter(product => 
+  const filteredProducts = products.filter((product) =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -274,7 +306,7 @@ export default function Products() {
                                 variant="destructive"
                                 size="sm"
                                 onClick={() => handleDelete(product.id)}
-                                className="bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
+                                className="bg-white border border-red-600 text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -353,7 +385,6 @@ export default function Products() {
                 <X size={24} />
               </button>
             </div>
-            
             <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-2">

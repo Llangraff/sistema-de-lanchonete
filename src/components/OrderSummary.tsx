@@ -1,4 +1,3 @@
-
 import { formatCurrency } from '../utils/database';
 
 interface OrderSummaryProps {
@@ -14,22 +13,51 @@ interface OrderSummaryProps {
 
 export default function OrderSummary({ orders }: OrderSummaryProps) {
   const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-  const totalItems = orders.reduce((sum, order) => 
-    sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
+  const totalItems = orders.reduce(
+    (sum, order) =>
+      sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0),
+    0
+  );
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-        <h3 className="text-sm font-medium text-gray-500">Pedidos Ativos</h3>
-        <p className="text-2xl font-semibold mt-1">{orders.length}</p>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+      {/* Card de Pedidos Ativos (Azul Escuro) */}
+      <div className="relative p-6 rounded-xl shadow-lg transform transition hover:scale-105">
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-900 to-blue-800 opacity-80 -z-10"></div>
+        <div className="relative z-10 text-center">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wide">
+            Pedidos Ativos
+          </h3>
+          <p className="text-3xl font-extrabold mt-2 text-white">
+            {orders.length}
+          </p>
+        </div>
       </div>
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-        <h3 className="text-sm font-medium text-gray-500">Total em Pedidos</h3>
-        <p className="text-2xl font-semibold mt-1 text-green-600">{formatCurrency(totalRevenue)}</p>
+
+      {/* Card de Total em Pedidos (Verde Escuro) */}
+      <div className="relative p-6 rounded-xl shadow-lg transform transition hover:scale-105">
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-green-900 to-green-800 opacity-80 -z-10"></div>
+        <div className="relative z-10 text-center">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wide">
+            Total em Pedidos
+          </h3>
+          <p className="text-3xl font-extrabold mt-2 text-white">
+            {formatCurrency(totalRevenue)}
+          </p>
+        </div>
       </div>
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-        <h3 className="text-sm font-medium text-gray-500">Itens Vendidos</h3>
-        <p className="text-2xl font-semibold mt-1">{totalItems}</p>
+
+      {/* Card de Itens Vendidos (Rosa Escuro) */}
+      <div className="relative p-6 rounded-xl shadow-lg transform transition hover:scale-105">
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-pink-900 to-pink-800 opacity-80 -z-10"></div>
+        <div className="relative z-10 text-center">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wide">
+            Itens Vendidos
+          </h3>
+          <p className="text-3xl font-extrabold mt-2 text-white">
+            {totalItems}
+          </p>
+        </div>
       </div>
     </div>
   );
