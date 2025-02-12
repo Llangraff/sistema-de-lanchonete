@@ -12,7 +12,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { formatDate } from '../utils/database';
-import { Button } from '@/components/ui/Button'; // Importa o componente Button atualizado
+import { Button } from '@/components/ui/Button';
 
 interface InventoryItem {
   id: number;
@@ -22,6 +22,7 @@ interface InventoryItem {
   quantity: number;
   unit: string;
   min_quantity: number;
+  disable_low_stock_alert: number;
 }
 
 interface Transaction {
@@ -105,7 +106,6 @@ export default function Inventory() {
   const handleUpdateQuantity = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!window.db || !selectedItem) return;
-    // Para "entrada", inverte o sinal; para "saída", mantém positivo.
     const quantity = updateQuantity.type === 'entrada'
       ? -Math.abs(updateQuantity.quantity)
       : Math.abs(updateQuantity.quantity);
@@ -186,6 +186,19 @@ export default function Inventory() {
 
   const uniqueUnits = Array.from(new Set(items.map(item => item.unit)));
 
+  // Função para alternar o alerta de estoque para um item (ativar ou desativar)
+  const toggleAlertForItem = async (itemId: number, currentStatus: number) => {
+    try {
+      // Se o alerta estiver ativo (0), o novo valor será 1 (desativado); se estiver desativado (1), o novo valor será 0 (ativo)
+      const newStatus = currentStatus === 0 ? 1 : 0;
+      await window.db.toggleLowStockAlert({ itemId, disable: newStatus });
+      loadLowStockItems();
+      loadInventory();
+    } catch (error) {
+      console.error('Erro ao alternar alerta para o item:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -219,7 +232,7 @@ export default function Inventory() {
 
       {/* Alertas de Estoque Baixo */}
       {lowStockItems.length > 0 && (
-        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-100 p-6 rounded-xl">
+        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-100 p-6 rounded-xl my-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-yellow-100 p-2 rounded-lg">
               <AlertTriangle className="h-6 w-6 text-yellow-600" />
@@ -260,6 +273,7 @@ export default function Inventory() {
                     />
                   </div>
                 </div>
+                {/* O botão de alternar alerta foi removido desta área */}
               </div>
             ))}
           </div>
@@ -386,6 +400,17 @@ export default function Inventory() {
                     >
                       <ArrowDown className="h-4 w-4" />
                     </button>
+                    {/* Botão para alternar alerta de estoque */}
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        toggleAlertForItem(item.id, item.disable_low_stock_alert);
+                      }}
+                      className="p-2 text-purple-600 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                      title={item.disable_low_stock_alert === 0 ? 'Desativar alerta' : 'Ativar alerta'}
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                    </button>
                     <button
                       onClick={e => {
                         e.stopPropagation();
@@ -482,7 +507,7 @@ export default function Inventory() {
         )}
       </div>
 
-      {/* Modal para adicionar novo item */}
+      {/* Modais para adicionar, atualizar, editar e excluir itens */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
@@ -571,8 +596,6 @@ export default function Inventory() {
           </div>
         </div>
       )}
-
-      {/* Modal para movimentar estoque (entrada/saída) */}
       {isUpdateModalOpen && selectedItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
@@ -644,8 +667,6 @@ export default function Inventory() {
           </div>
         </div>
       )}
-
-      {/* Modal para editar item */}
       {isEditModalOpen && editItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">
@@ -705,8 +726,6 @@ export default function Inventory() {
           </div>
         </div>
       )}
-
-      {/* Modal de confirmação para exclusão (apenas para itens manuais) */}
       {isDeleteModalOpen && itemToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96 max-w-[90vw]">

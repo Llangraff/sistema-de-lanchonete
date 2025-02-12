@@ -52,7 +52,7 @@ function initializeDatabase() {
     log.info('Database path:', dbPath);
     db = new Database(dbPath);
 
-    // Criação do schema com as novas colunas
+    // Criação do schema com as novas tabelas e colunas, incluindo cash_transactions
     db.exec(`
       CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +103,16 @@ function initializeDatabase() {
         description TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(inventory_item_id) REFERENCES inventory_items(id)
+      );
+      
+      -- Nova tabela para o fluxo de caixa
+      CREATE TABLE IF NOT EXISTS cash_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        category TEXT,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
   } catch (error) {
@@ -165,11 +175,15 @@ ipcMain.handle('update-product', (_, product) => {
 
 ipcMain.handle('delete-product', async (_, id) => {
   try {
-    const stmt = db.prepare('UPDATE products SET deleted = TRUE WHERE id = ?');
-    stmt.run(id);
+    // Transação que marca o produto como deletado e remove o item de estoque associado
+    const deleteTransaction = db.transaction(() => {
+      db.prepare('UPDATE products SET deleted = TRUE WHERE id = ?').run(id);
+      db.prepare('DELETE FROM inventory_items WHERE product_id = ?').run(id);
+    });
+    deleteTransaction();
     return true;
   } catch (error) {
-    log.error('Erro ao desativar produto:', error);
+    log.error('Erro ao desativar produto e excluir item de estoque:', error);
     throw error;
   }
 });
@@ -184,7 +198,6 @@ ipcMain.handle('get-orders', () => {
     WHERE o.status != 'closed'
     GROUP BY o.id
   `).all();
-
   return orders.map(order => ({
     ...order,
     items: db.prepare(`
@@ -256,8 +269,7 @@ ipcMain.handle('pay-partial-order-items', (_, { orderId, items }) => {
   }
 });
 
-// Fechar pedido: baixa automática no estoque para TODOS os produtos,
-// deduzindo o que estiver disponível.
+// Fechar pedido com baixa automática no estoque e registro no caixa
 ipcMain.handle('close-order', (_, orderId) => {
   try {
     const closeOrderTransaction = db.transaction(() => {
@@ -268,15 +280,33 @@ ipcMain.handle('close-order', (_, orderId) => {
         WHERE id = ?
       `).run(orderId);
 
-      // Recupera os itens do pedido
+      // Recupera os itens do pedido para calcular o total da venda
       const orderItems = db.prepare(`
+        SELECT oi.quantity, p.price
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+      `).all(orderId);
+
+      let orderTotal = 0;
+      orderItems.forEach(item => {
+        orderTotal += item.quantity * item.price;
+      });
+
+      // Registra transação de caixa (entrada) para o valor da venda
+      db.prepare(`
+        INSERT INTO cash_transactions (type, amount, category, description)
+        VALUES ('entrada', ?, 'venda', 'Venda automática via pedido ' || ?)
+      `).run(orderTotal, orderId);
+
+      // Atualiza estoque para cada item vendido
+      const orderItemsForStock = db.prepare(`
         SELECT product_id, quantity
         FROM order_items
         WHERE order_id = ?
       `).all(orderId);
-
-      orderItems.forEach(item => {
-        // Busca o item de estoque correspondente
+      
+      orderItemsForStock.forEach(item => {
         const inventoryItem = db.prepare(`
           SELECT id, quantity
           FROM inventory_items
@@ -296,8 +326,8 @@ ipcMain.handle('close-order', (_, orderId) => {
           `).run(newQuantity, inventoryItem.id);
           db.prepare(`
             INSERT INTO inventory_transactions (inventory_item_id, quantity, type, description)
-            VALUES (?, ?, ?, ?)
-          `).run(inventoryItem.id, quantityToDeduct, 'saida', 'Venda automática via pedido ' + orderId);
+            VALUES (?, ?, 'saida', 'Venda automática via pedido ' || ?)
+          `).run(inventoryItem.id, quantityToDeduct, orderId);
         }
       });
     });
@@ -309,7 +339,10 @@ ipcMain.handle('close-order', (_, orderId) => {
   }
 });
 
-// Handler para alternar a notificação de estoque baixo
+// ===================================================
+// OPÇÃO 1: Desativação individual do alerta de estoque
+// Handler para alternar a notificação de estoque baixo por item
+// Quando disable for true, o campo disable_low_stock_alert será atualizado para 1.
 ipcMain.handle('toggle-low-stock-alert', (_, { itemId, disable }) => {
   try {
     return db.prepare(`
@@ -319,6 +352,43 @@ ipcMain.handle('toggle-low-stock-alert', (_, { itemId, disable }) => {
     `).run(disable ? 1 : 0, itemId);
   } catch (error) {
     log.error('Error toggling low stock alert:', error);
+    throw error;
+  }
+});
+// ===================================================
+
+// Caixa – Handler para adicionar transações manuais
+ipcMain.handle('add-cash-transaction', (_, { type, amount, category, description }) => {
+  try {
+    return db.prepare(`
+      INSERT INTO cash_transactions (type, amount, category, description)
+      VALUES (?, ?, ?, ?)
+    `).run(type, amount, category, description);
+  } catch (error) {
+    log.error('Error adding cash transaction:', error);
+    throw error;
+  }
+});
+
+// Novo handler para obter o fluxo de caixa
+ipcMain.handle('get-cash-flow', async () => {
+  try {
+    const totalEntriesStmt = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM cash_transactions
+      WHERE type = 'entrada'
+    `);
+    const totalExitsStmt = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM cash_transactions
+      WHERE type = 'saida'
+    `);
+    const { total: total_entries } = totalEntriesStmt.get();
+    const { total: total_exits } = totalExitsStmt.get();
+    const balance = total_entries - total_exits;
+    return { total_entries, total_exits, balance };
+  } catch (error) {
+    log.error('Error fetching cash flow:', error);
     throw error;
   }
 });
@@ -416,10 +486,9 @@ ipcMain.handle('get-low-stock-items', () => {
   }
 });
 
-// Atualizar/Excluir item de estoque
+// Atualizar item de estoque (apenas unit e min_quantity)
 ipcMain.handle('update-inventory-item', (_, item) => {
   try {
-    // Atualiza apenas os campos unit e min_quantity
     return db.prepare(`
       UPDATE inventory_items
       SET unit = ?, min_quantity = ?
@@ -431,18 +500,16 @@ ipcMain.handle('update-inventory-item', (_, item) => {
   }
 });
 
+// Exclusão de item de estoque – permite excluir apenas itens manuais (sem product_id)
 ipcMain.handle('delete-inventory-item', (_, itemId) => {
   try {
-    // Primeiro, recupera o item para verificar se está vinculado a um produto
     const item = db.prepare('SELECT product_id FROM inventory_items WHERE id = ?').get(itemId);
     if (!item) {
       throw new Error('Item de estoque não encontrado');
     }
-    // Se o item estiver vinculado a um produto (product_id não é NULL), não permite a exclusão
     if (item.product_id !== null) {
       throw new Error('Exclusão não permitida para itens vinculados a produtos');
     }
-    // Executa a exclusão em transação (removendo também as movimentações relacionadas)
     const deleteTransaction = db.transaction(() => {
       db.prepare('DELETE FROM inventory_transactions WHERE inventory_item_id = ?').run(itemId);
       db.prepare('DELETE FROM inventory_items WHERE id = ?').run(itemId);
@@ -455,8 +522,7 @@ ipcMain.handle('delete-inventory-item', (_, itemId) => {
   }
 });
 
-
-// Relatórios
+// Relatórios Gerais
 ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sortBy }) => {
   try {
     const options = {
@@ -528,6 +594,102 @@ ipcMain.handle('get-report', (_, { startDate, endDate, category, priceRange, sor
     return { ...data, topProducts };
   } catch (error) {
     log.error('Error generating report:', error);
+    throw error;
+  }
+});
+
+// ==================== NOVO HANDLER: Relatório Geral de Produtos ====================
+ipcMain.handle('get-product-report', (_, { startDate, endDate, category }) => {
+  try {
+    const options = {
+      timeZone: 'America/Sao_Paulo',
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    };
+    const adjustedStartDate = new Date(startDate + 'T00:00:00').toLocaleString('sv-SE', options);
+    const adjustedEndDate = new Date(endDate + 'T23:59:59').toLocaleString('sv-SE', options);
+
+    let whereClause = `
+      o.status = 'closed'
+      AND DATETIME(o.closed_at, 'localtime') BETWEEN DATETIME(?, 'localtime') AND DATETIME(?, 'localtime')
+    `;
+    const params = [adjustedStartDate, adjustedEndDate];
+
+    if (category && category.trim() !== '') {
+      whereClause += ` AND p.category = ?`;
+      params.push(category);
+    }
+
+    const productsData = db.prepare(`
+      SELECT p.name,
+             SUM(oi.quantity) as total_quantity,
+             SUM(oi.quantity * p.price) as revenue
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      JOIN orders o ON o.id = oi.order_id
+      WHERE ${whereClause}
+      GROUP BY p.id
+      ORDER BY total_quantity DESC
+    `).all(...params);
+
+    const topProduct = productsData.length ? productsData[0] : null;
+    const bottomProduct = productsData.length ? productsData[productsData.length - 1] : null;
+
+    return { productsData, topProduct, bottomProduct };
+  } catch (error) {
+    log.error('Error generating product report:', error);
+    throw error;
+  }
+});
+
+// ==================== NOVO HANDLER: Relatório de Bebidas ====================
+ipcMain.handle('get-beverage-report', (_, { startDate, endDate }) => {
+  try {
+    const options = {
+      timeZone: 'America/Sao_Paulo',
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    };
+    const adjustedStartDate = new Date(startDate + 'T00:00:00').toLocaleString('sv-SE', options);
+    const adjustedEndDate = new Date(endDate + 'T23:59:59').toLocaleString('sv-SE', options);
+
+    // Restrição para pedidos fechados e apenas produtos da categoria 'bebida'
+    const whereClause = `
+      o.status = 'closed'
+      AND DATETIME(o.closed_at, 'localtime') BETWEEN DATETIME(?, 'localtime') AND DATETIME(?, 'localtime')
+      AND p.category = 'bebida'
+    `;
+    const params = [adjustedStartDate, adjustedEndDate];
+
+    // Consulta agregada para obter os dados de bebidas
+    const beveragesData = db.prepare(`
+      SELECT p.name,
+             SUM(oi.quantity) as total_quantity,
+             SUM(oi.quantity * p.price) as revenue
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      JOIN orders o ON o.id = oi.order_id
+      WHERE ${whereClause}
+      GROUP BY p.id
+      ORDER BY total_quantity DESC
+    `).all(...params);
+
+    const topBeverage = beveragesData.length ? beveragesData[0] : null;
+    const bottomBeverage = beveragesData.length ? beveragesData[beveragesData.length - 1] : null;
+
+    return { beveragesData, topBeverage, bottomBeverage };
+  } catch (error) {
+    log.error('Error generating beverage report:', error);
     throw error;
   }
 });

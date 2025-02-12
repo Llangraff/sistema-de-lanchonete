@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, UseFormRegister } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Toaster, toast } from 'sonner';
 import {
+  Package,
   Plus,
   Loader2,
   AlertCircle,
   Edit,
-  Search,
   Trash2,
-  Package,
   ArrowLeft,
   ArrowRight,
   X
@@ -22,36 +21,33 @@ import { SearchInput } from '@/components/SearchInput';
 import { formatPrice } from '@/lib/utils';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
+// Define o schema do produto com os valores literais permitidos para a categoria
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
   price: z.number().min(0.01, 'Preço deve ser maior que zero'),
-  category: z.enum(
-    [
-      'espetinho',
-      'bebida',
-      'acompanhamento',
-      'comida',
-      'diversos',
-      'refeição',
-      'salgados',
-      'porcao',
-      'doce',
-      'sobremesa',
-      'lanche'
-    ],
-    {
-      required_error: 'Selecione uma categoria',
-    }
-  ),
+  category: z.enum([
+    'espetinho',
+    'bebida',
+    'acompanhamento',
+    'comida',
+    'diversos',
+    'refeição',
+    'salgados',
+    'porcao',
+    'doce',
+    'sobremesa',
+    'lanche'
+  ], { required_error: 'Selecione uma categoria' })
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
 
+// Atualize o tipo de Product para que category seja um dos literais definidos
 interface Product {
   id: number;
   name: string;
   price: number;
-  category: string;
+  category: "espetinho" | "bebida" | "acompanhamento" | "comida" | "diversos" | "refeição" | "salgados" | "porcao" | "doce" | "sobremesa" | "lanche";
 }
 
 const ITEMS_PER_PAGE = 10;
@@ -84,6 +80,178 @@ const categoryColors: Record<string, string> = {
   comida: 'bg-emerald-100 text-emerald-800'
 };
 
+// Modal para adicionar ou editar produto
+function ProductFormModal({
+  isOpen,
+  editingProduct,
+  onClose,
+  onSubmit,
+  register,
+  errors,
+  isSubmitting,
+}: {
+  isOpen: boolean;
+  editingProduct: Product | null;
+  onClose: () => void;
+  onSubmit: React.FormEventHandler<HTMLFormElement>;
+  register: UseFormRegister<ProductFormData>;
+  errors: Record<string, any>;
+  isSubmitting: boolean;
+}) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
+        <div className="flex justify-between items-center p-6 border-b">
+          <h3 className="text-xl font-semibold text-gray-900">
+            {editingProduct ? 'Editar Produto' : 'Novo Produto'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 transition-colors">
+            <X size={24} />
+          </button>
+        </div>
+        <form onSubmit={onSubmit} className="p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Nome do Produto</label>
+              <input
+                {...register('name')}
+                className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring focus:ring-blue-500"
+                placeholder="Ex: Espetinho de Carne"
+              />
+              {errors.name && (
+                <p className="text-sm text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.name.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Preço (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                {...register('price', { valueAsNumber: true })}
+                className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring focus:ring-blue-500"
+                placeholder="0.00"
+              />
+              {errors.price && (
+                <p className="text-sm text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.price.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Categoria</label>
+              <select
+                {...register('category')}
+                className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring focus:ring-blue-500"
+              >
+                {Object.entries(categoryLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {errors.category && (
+                <p className="text-sm text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.category.message}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : editingProduct ? (
+                <Edit className="w-4 h-4" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              {editingProduct ? 'Atualizar Produto' : 'Adicionar Produto'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Tabela de produtos
+function ProductsTable({
+  products,
+  onEdit,
+  onDelete,
+}: {
+  products: Product[];
+  onEdit: (product: Product) => void;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-gray-200">
+            <th className="text-left py-3 px-4 font-medium text-gray-600">Nome</th>
+            <th className="text-left py-3 px-4 font-medium text-gray-600">Categoria</th>
+            <th className="text-left py-3 px-4 font-medium text-gray-600">Preço</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((product: Product) => (
+            <tr key={product.id} className="border-b border-gray-100 hover:bg-gray-50">
+              <td className="py-3 px-4">
+                <span className="font-medium text-gray-900">{product.name}</span>
+              </td>
+              <td className="py-3 px-4">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[product.category]}`}>
+                  {categoryLabels[product.category]}
+                </span>
+              </td>
+              <td className="py-3 px-4">
+                <span className="text-gray-900 font-medium">{formatPrice(product.price)}</span>
+              </td>
+              <td className="py-3 px-4">
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onEdit(product)}
+                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => onDelete(product.id)}
+                    className="bg-white border border-red-600 text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Products() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
@@ -91,7 +259,7 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<number | null>(null);
-  const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const {
@@ -102,9 +270,7 @@ export default function Products() {
     formState: { errors, isSubmitting }
   } = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
-    defaultValues: {
-      category: 'espetinho',
-    },
+    defaultValues: { category: 'espetinho' },
   });
 
   useEffect(() => {
@@ -112,6 +278,7 @@ export default function Products() {
       setIsLoading(true);
       loadInitialData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadInitialData = async () => {
@@ -130,7 +297,7 @@ export default function Products() {
     queryFn: () => window.db.getProducts(),
   });
 
-  const filteredProducts = products.filter((product) =>
+  const filteredProducts = products.filter((product: Product) =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -147,7 +314,7 @@ export default function Products() {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       toast.success('Produto adicionado com sucesso!');
       reset();
-      setIsNewOrderModalOpen(false);
+      setIsProductModalOpen(false);
     },
     onError: (error: Error) => {
       toast.error(`Erro ao adicionar produto: ${error.message}`);
@@ -191,7 +358,8 @@ export default function Products() {
     setEditingProduct(product);
     setValue('name', product.name);
     setValue('price', product.price);
-    setValue('category', product.category as any);
+    setValue('category', product.category);
+    setIsProductModalOpen(true);
   };
 
   const handleDelete = (id: number) => {
@@ -241,13 +409,17 @@ export default function Products() {
               placeholder="Pesquisar produtos..."
               className="w-full sm:w-80"
             />
-            <button
-              onClick={() => setIsNewOrderModalOpen(true)}
+            <Button
+              onClick={() => {
+                setEditingProduct(null);
+                reset();
+                setIsProductModalOpen(true);
+              }}
               className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-sm"
             >
               <Plus size={20} />
               Novo Produto
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -258,7 +430,7 @@ export default function Products() {
           <CardContent>
             {paginatedProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-                <Search className="w-12 h-12 mb-3 text-gray-400" />
+                {/* Removido SearchInput.Icon pois não existe */}
                 <p className="text-lg font-medium text-gray-900 mb-1">Nenhum produto encontrado</p>
                 <p className="text-gray-500">
                   {searchTerm
@@ -268,61 +440,14 @@ export default function Products() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-3 px-4 font-medium text-gray-600">Nome</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-600">Categoria</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-600">Preço</th>
-                        <th className="text-right py-3 px-4 font-medium text-gray-600">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedProducts.map((product: Product) => (
-                        <tr key={product.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                          <td className="py-3 px-4">
-                            <span className="font-medium text-gray-900">{product.name}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[product.category]}`}>
-                              {categoryLabels[product.category]}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="text-gray-900 font-medium">{formatPrice(product.price)}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleEdit(product)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDelete(product.id)}
-                                className="bg-white border border-red-600 text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
+                <ProductsTable
+                  products={paginatedProducts}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
                   <p className="text-sm text-gray-500">
-                    Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} a{' '}
-                    {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} de{' '}
-                    {filteredProducts.length} produtos
+                    Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} a {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} de {filteredProducts.length} produtos
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -366,109 +491,19 @@ export default function Products() {
         </Card>
       </div>
 
-      {/* Modal de Novo/Editar Produto */}
-      {(isNewOrderModalOpen || editingProduct) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
-            <div className="flex justify-between items-center p-6 border-b">
-              <h3 className="text-xl font-semibold text-gray-900">
-                {editingProduct ? 'Editar Produto' : 'Novo Produto'}
-              </h3>
-              <button
-                onClick={() => {
-                  setIsNewOrderModalOpen(false);
-                  setEditingProduct(null);
-                  reset();
-                }}
-                className="text-gray-400 hover:text-gray-500 transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Nome do Produto</label>
-                  <input
-                    {...register('name')}
-                    className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    placeholder="Ex: Espetinho de Carne"
-                  />
-                  {errors.name && (
-                    <p className="text-sm text-red-500 flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4" />
-                      {errors.name.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Preço (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('price', { valueAsNumber: true })}
-                    className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    placeholder="0.00"
-                  />
-                  {errors.price && (
-                    <p className="text-sm text-red-500 flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4" />
-                      {errors.price.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Categoria</label>
-                  <select
-                    {...register('category')}
-                    className="w-full rounded-lg border border-gray-300 shadow-sm px-4 py-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  >
-                    {Object.entries(categoryLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                  {errors.category && (
-                    <p className="text-sm text-red-500 flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4" />
-                      {errors.category.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsNewOrderModalOpen(false);
-                    setEditingProduct(null);
-                    reset();
-                  }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : editingProduct ? (
-                    <Edit className="w-4 h-4" />
-                  ) : (
-                    <Plus className="w-4 h-4" />
-                  )}
-                  {editingProduct ? 'Atualizar Produto' : 'Adicionar Produto'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ProductFormModal
+        isOpen={isProductModalOpen}
+        editingProduct={editingProduct}
+        onClose={() => {
+          setIsProductModalOpen(false);
+          setEditingProduct(null);
+          reset();
+        }}
+        onSubmit={handleSubmit(onSubmit)}
+        register={register}
+        errors={errors}
+        isSubmitting={isSubmitting}
+      />
 
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}
