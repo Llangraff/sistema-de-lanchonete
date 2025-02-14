@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('db', {
   getReport: (filters) => ipcRenderer.invoke('get-report', filters),
   getBeverageReport: (filters) => ipcRenderer.invoke('get-beverage-report', filters),
   getProductReport: (filters) => ipcRenderer.invoke('get-product-report', filters),
+  getConsolidatedReport: (filters) => ipcRenderer.invoke('get-consolidated-report', filters),
 
   // Inventory Methods
   getInventoryItems: () => ipcRenderer.invoke('get-inventory-items'),
@@ -28,10 +29,27 @@ contextBridge.exposeInMainWorld('db', {
   getLowStockItems: () => ipcRenderer.invoke('get-low-stock-items'),
   updateInventoryItem: (item) => ipcRenderer.invoke('update-inventory-item', item),
   deleteInventoryItem: (itemId) => ipcRenderer.invoke('delete-inventory-item', itemId),
-  // Adicionando método para desativar o alerta de estoque individualmente:
   toggleLowStockAlert: (data) => ipcRenderer.invoke('toggle-low-stock-alert', data),
+  // Novo: Método para buscar produto pelo código de barras
+  getProductByBarcode: (barcode) => ipcRenderer.invoke('get-product-by-barcode', barcode),
+  // Novo: Método para desativar alertas de estoque globalmente
+  disableAllStockAlerts: () => ipcRenderer.invoke('disable-all-stock-alerts'),
 
   // Cash Flow Methods
   getCashFlow: () => ipcRenderer.invoke('get-cash-flow'),
   addCashTransaction: (transaction) => ipcRenderer.invoke('add-cash-transaction', transaction),
+
+  // Customer Methods
+  getCustomers: () => ipcRenderer.invoke('get-customers'),
+  addCustomer: (customer) => ipcRenderer.invoke('add-customer', customer),
+  getCustomerTransactions: (customerId) => ipcRenderer.invoke('get-customer-transactions', customerId),
+  addCustomerTransaction: (transaction) => ipcRenderer.invoke('add-customer-transaction', transaction),
+  updateCustomer: (customer) => ipcRenderer.invoke('update-customer', customer),
+  deleteCustomer: (id) => ipcRenderer.invoke('delete-customer', id),
+
+  // Método para obter todas as transações
+  getAllTransactions: () => ipcRenderer.invoke('get-all-transactions'),
+
+  // Novo: Função para escutar atualizações de transações de clientes
+  onCustomerTransactionUpdated: (callback) => ipcRenderer.on('customer-transaction-updated', callback)
 });

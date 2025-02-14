@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Package, BarChart2, BoxIcon } from 'lucide-react';
+import { ClipboardList, Package, BarChart2, BoxIcon, User } from 'lucide-react';
 
 export default function Sidebar() {
   const location = useLocation();
@@ -8,7 +8,8 @@ export default function Sidebar() {
     { path: '/', label: 'Comandas', icon: ClipboardList },
     { path: '/products', label: 'Produtos', icon: Package },
     { path: '/inventory', label: 'Estoque', icon: BoxIcon },
-    { path: '/reports', label: 'Relatórios', icon: BarChart2 }
+    { path: '/reports', label: 'Relatórios', icon: BarChart2 },
+    { path: '/customers', label: 'Clientes', icon: User }
   ];
 
   return (
